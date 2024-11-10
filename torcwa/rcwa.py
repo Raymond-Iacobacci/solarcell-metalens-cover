@@ -1243,7 +1243,7 @@ class rcwa:
         Kz_norm = torch.diag(self.kz_norm[-1])
         phase = torch.diag(torch.exp(1.j*self.omega*self.kz_norm[-1]*self.thickness[-1]))
         Pinv_tmp = torch.linalg.inv(self.P[-1])
-        if False:#self.avoid_Pinv_instability == True:
+        if self.avoid_Pinv_instability == True:
             
             Pinv_ins_tmp1 = torch.max(torch.abs( torch.matmul(self.P[-1].detach(),Pinv_tmp.detach())-torch.eye(self.P[-1].shape[-1]).to(self.P[-1]) ))
             Pinv_ins_tmp2 = torch.max(torch.abs( torch.matmul(Pinv_tmp.detach(),self.P[-1].detach())-torch.eye(self.P[-1].shape[-1]).to(self.P[-1]) ))

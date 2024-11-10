@@ -1,0 +1,1 @@
+# J_L is not propagating wavelengths
