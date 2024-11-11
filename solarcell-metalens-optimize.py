@@ -9,17 +9,22 @@ import matplotlib.pyplot as plt
 import sys
 sys.path.append('..')
 
-
+'''
+Script settings
+'''
 logging = False
-debug = False
-verbose = 1
+debug = True
+verbose = 0
+handle_instability = True
 
-
+'''
+Generator settings
+'''
 num_images = 2
 hidden_dimension = 10
 noise_dimension = 3
 
-
+# TODO add intelligent model to simulation
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
@@ -91,22 +96,6 @@ def plotLens(array):
     plt.step(range(len(array)), array, where="post")
     plt.show()
 
-
-def simpson_rule(y, x=None, dx=1.0):  # TODO fix input validation scheme
-    # if x and dx:
-    #     assert x[1:] - x == dx, "x intervals must be equally spaced."
-    assert (x[-1]-x[0]) % 2 == 0, "b-a must be odd."
-    # Slicing to preserve gradients
-    a = (x[-1]-x[0])/6
-    b = y[int((x[-1] - x[0]) / 2) - 1: int((x[-1] - x[0]) / 2)]
-    c = y[0:1]
-    d = y[len(y)-1:len(y)]
-    print(a,b,c,d)
-    return a * (b + 4 * c + d)
-
-    return (x[-1]-x[0])/6 * (y[0:1] + 4 * y[int((x[-1] - x[0]) / 2) - 1: int((x[-1] - x[0]) / 2)] + y[-1:0])
-
-
 def IQE(wavelength, e_g):
     lambda_g = np.ceil(1240 / e_g)
     if (lambda_g > wavelength[-1]):
@@ -121,16 +110,11 @@ def IQE(wavelength, e_g):
 
 def JV(em, IQE, lambda_i, T_emitter, iteration, image_index):
     em = em.squeeze()
-    print(f'This is q: {q}')
-    J_L = q * simpson_rule(em*nb_B(lambda_i, T_emitter)*IQE, x=lambda_i)
-    # J_L = q * torch.sum(em * nb_B(lambda_i, T_emitter) *
-    #                     IQE) * (lambda_i[1] - lambda_i[0])
-    print(f'This is J_L calculated from the simpson rule:\n{J_L}')
-    J_0 = q*simpson_rule(nb_B_PV*IQE, x=lambda_i)
-    # J_0 = q * torch.sum(nb_B_PV*IQE) * (lambda_i[1] - lambda_i[0])
+    # J_L = q * np.sum(em.detach().numpy() * np.array(nb_B(lambda_i, T_emitter)) * IQE.detach().numpy()) * (lambda_i[1] - lambda_i[0])
+    J_L = q * torch.sum(em * nb_B_e * IQE) * (lambda_i[1] - lambda_i[0])
+    J_0 = q * torch.sum(nb_B_PV*IQE) * (lambda_i[1] - lambda_i[0])
     V_oc = (k_B*T_PV/q)*torch.log(J_L/J_0+1)
     t = torch.linspace(0, 1, 100)
-    print(f'This is V_oc: {V_oc}')
     V = t * V_oc
     J = J_L-J_0*(torch.exp(q*V/(k_B*T_PV))-1)
     P = V*J
@@ -146,12 +130,14 @@ def JV(em, IQE, lambda_i, T_emitter, iteration, image_index):
 
 def d_optimize(lambda_i, emissivity_dataset, T_emitter, E_g_PV, iteration, image_index):
     emissivity = emissivity_dataset.squeeze()
-    P_emit = simpson_rule(
-        emissivity*Blackbody(lambda_i, T_emitter), x=lambda_i)
-    # P_emit = torch.sum(emissivity*Blackbody(lambda_i, T_emitter)
-    #                    ) * (lambda_i[1] - lambda_i[0])
+    # P_emit = simpson_rule(
+    #     emissivity*Blackbody(lambda_i, T_emitter), x=lambda_i)
+    P_emit = torch.sum(emissivity*Blackbody(lambda_i, T_emitter)
+                       ) * (lambda_i[1] - lambda_i[0])
+    print(f'This is P_emit: {P_emit}')
     IQE_PV = IQE(lambda_i, E_g_PV)
     JV_PV = JV(emissivity, IQE_PV, lambda_i, T_emitter, iteration, image_index)
+    print(f'This is JV_PV: {JV_PV}')
     FOM = JV_PV / P_emit
 
     if logging:
@@ -187,6 +173,7 @@ torcwa.rcwa_geo.device = device
 torcwa.rcwa_geo.Lx = L[0]
 torcwa.rcwa_geo.Ly = L[1]
 torcwa.rcwa_geo.nx = 200
+# TODO bug
 useless_transverse_points = 5
 torcwa.rcwa_geo.ny = useless_transverse_points
 torcwa.rcwa_geo.grid()
@@ -204,8 +191,6 @@ order = [order_N, 1]
 generator = Generator()
 optimizer = torch.optim.Adam(generator.parameters(), lr=learning_rate)
 lambda_quad = 1e-5
-order0, order1 = 0, 0
-print(f'Order 0: {order0}, Order 1: {order1}')
 for iteration in range(100):
     optimizer.zero_grad()
     generated_images = generator()
@@ -216,9 +201,9 @@ for iteration in range(100):
         grid_permittivity = torch.clamp(grid_permittivity, min=0, max=1)
         grid_permittivity.requires_grad_(True)
 
-        np_grid = grid_permittivity.cpu().detach().numpy()
-        filename = f"permittivity_iteration_{iteration}_image_{image}.npy"
-        if verbose:
+        if verbose >= 1:
+            np_grid = grid_permittivity.cpu().detach().numpy()
+            filename = f"permittivity_iteration_{iteration}_image_{image}.npy"
             np.save(filename, np_grid)
 
         gradient_array = []
@@ -229,8 +214,9 @@ for iteration in range(100):
             grid_permittivity += 1
 
         for index, wavelength in enumerate(wavelengths):
-            continue
-            print(f'Wavelength: {wavelength}')
+            if debug:
+                with open('logger.txt','a+') as f:
+                    f.write(f'Wavelength: {wavelength}\n')
             grid_permittivity_scaled = grid_permittivity * \
                 (nk_AlN[index] ** 2 - 1) + 1
             sim = torcwa.rcwa(freq=1 / wavelength, order=order,
@@ -245,29 +231,6 @@ for iteration in range(100):
             sim.add_layer(thickness=5000, eps=torch.tensor(nk_W[index] ** 2))
             sim.solve_global_smatrix()
 
-            if debug:
-
-                reflected1 = torch.abs(sim.S_parameters(orders=[
-                                       order0, 0], direction='forward', port='reflection', polarization='xx', ref_order=[0, 0], power_norm=True))
-                # input("Image analyzed, press enter to continue...")
-
-                reflected2 = torch.abs(sim.S_parameters(orders=[
-                                       order0, 0], direction='forward', port='reflection', polarization='yx', ref_order=[0, 0]))
-                reflected3 = torch.abs(sim.S_parameters(orders=[
-                                       order0, 0], direction='forward', port='reflection', polarization='yy', ref_order=[0, 0]))
-                reflected4 = torch.abs(sim.S_parameters(orders=[
-                                       order0, 0], direction='forward', port='reflection', polarization='xy', ref_order=[0, 0]))
-
-                # , 1 - reflected2.detach().numpy().item(), 1 - reflected3.detach().numpy().item(), 1 - reflected4.detach().numpy().item())
-                # print(1 - reflected1.detach().numpy().item())
-                transmitted1 = torch.abs(sim.S_parameters(orders=[
-                                         order0, 0], direction='forward', port='transmission', polarization='xx', ref_order=[0, 0], power_norm=True))
-                # print(transmitted1)
-                transmitted2 = torch.abs(sim.S_parameters(orders=[
-                                         order0, 0], direction='forward', port='transmission', polarization='xx', ref_order=[0, 0], power_norm=False))
-                # print(transmitted2)
-                # sys.exit(1)
-
             reflected = torch.sqrt(torch.abs(sim.S_parameters(orders=[0, 0], direction='forward', port='reflection', polarization='xx', ref_order=[
                 0, 0])) ** 2 + torch.abs(sim.S_parameters(orders=[0, 0], direction='forward', port='reflection', polarization='yx', ref_order=[0, 0])) ** 2)
             reflected_array.append(reflected)
@@ -279,21 +242,25 @@ for iteration in range(100):
                 torcwa.rcwa_geo.x, z, L[1] / 2)
             dj_de = 1/wavelength**2*torch.real(torch.mul(Ex, Ex_adj))
             gradient_array.append(dj_de)
-        # gradient_array_stacked = torch.mean(
-            # torch.stack(gradient_array), dim=(-1))
-        # transmitted_array_stacked = 1 - torch.stack(reflected_array)
-        # plt.plot(wavelengths, transmitted_array_stacked.flatten().detach().numpy())
-        # plt.show()
+        gradient_array_stacked = torch.mean(
+            torch.stack(gradient_array), dim=(-1))
+        transmitted_array_stacked = 1 - torch.stack(reflected_array)
+        # TODO bug (numerical instability)
+        if handle_instability:
+            transmitted_array_stacked[torch.argmax(transmitted_array_stacked):torch.argmax(transmitted_array_stacked)+1] = transmitted_array_stacked[torch.argmax(transmitted_array_stacked)-1:torch.argmax(transmitted_array_stacked)]
         if debug:
             print(
-                f'Transmission coefficients: {transmitted_array_stacked.flatten().detach().numpy()}')
-        transmitted_array_stacked = np.array(np.load('/Users/raymondiacobacci/declan_emissivity.npy'))
+                f'Computed transmission coefficients: {transmitted_array_stacked.flatten().detach().numpy()}')
+            transmitted_array_stacked = np.array(np.load('/Users/raymondiacobacci/declan_emissivity.npy'))
         transmitted_array_stacked = torch.tensor(
             transmitted_array_stacked, requires_grad=True)
         FOM = 1-d_optimize(wavelengths, transmitted_array_stacked,
-                           1800+273, .726, iteration, image)
+                           T_e, .726, iteration, image)
         # Need to write a test for it to make sure that these calculations (transposed) are correct
-        print(f'This is the figure of merit:\n{1-FOM}')
+        if debug:
+            plt.plot(wavelengths, transmitted_array_stacked.flatten().detach().numpy())
+            plt.show()
+            print(f'This is the FOM: {FOM}')
         loss_quad = torch.mean(0.5 * (grid_permittivity - 0.5) ** 2)
         fom_loss = -1*(FOM + loss_quad * lambda_quad * iteration ** 1.5)
 
