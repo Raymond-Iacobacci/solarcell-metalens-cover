@@ -1252,7 +1252,7 @@ class rcwa:
 
             self.Pinv_instability.append(torch.maximum(Pinv_ins_tmp1,Pinv_ins_tmp2))
             self.Qinv_instability.append(torch.maximum(Qinv_ins_tmp1,Qinv_ins_tmp2))
-
+            print(f'E_eigvec[-1]: {self.E_eigvec[-1].shape}')
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
                 self.H_eigvec.append(torch.matmul(Pinv_tmp,torch.matmul(self.E_eigvec[-1],Kz_norm)))
             else:
@@ -1297,6 +1297,7 @@ class rcwa:
         # Mode coupling coefficients
         C = [[],[]]
         for m in range(len(Cm[0])):
+            print(f'Coupling coefficients to start -- should be empty? {Cm[0][m]}')
             C[0].append(Cm[0][m] + torch.matmul(Cm[1][m],torch.matmul(tmp2,torch.matmul(Sn[1],Sm[0]))))
             C[1].append(torch.matmul(Cm[1][m],torch.matmul(tmp2,Sn[3])))
 

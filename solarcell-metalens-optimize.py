@@ -1,3 +1,9 @@
+'''
+( real(exp(1/1 * h * ...)) + real(exp(1/2 * h * ...)) ++ ) ^ 2
+
+'''
+
+
 import torcwa
 import csv
 import torch.nn as nn
@@ -185,8 +191,9 @@ x_axis = torcwa.rcwa_geo.x.cpu()
 y_axis = torcwa.rcwa_geo.y.cpu()
 z_axis = z.cpu()
 
-order_N = 14
+order_N = 1
 order = [order_N, 1]
+order = [0,1]
 
 generator = Generator()
 optimizer = torch.optim.Adam(generator.parameters(), lr=learning_rate)
@@ -217,22 +224,29 @@ for iteration in range(100):
             if debug:
                 with open('logger.txt','a+') as f:
                     f.write(f'Wavelength: {wavelength}\n')
+            # wavelength = 1500
+            # index = 1150
+            # grid_permittivity[50:60] = 0
             grid_permittivity_scaled = grid_permittivity * \
                 (nk_AlN[index] ** 2 - 1) + 1
             sim = torcwa.rcwa(freq=1 / wavelength, order=order,
                               L=[500., 500.], dtype=sim_dtype, device=device)
             sim.add_input_layer(eps=1)
             sim.set_incident_angle(inc_ang=inc_ang, azi_ang=azi_ang)
-            if debug:
+            if not debug:
                 sim.add_layer(
                     thickness=473, eps=torch.tensor(nk_AlN[index] ** 2))
             else:
                 sim.add_layer(thickness=473, eps=grid_permittivity_scaled)
             sim.add_layer(thickness=5000, eps=torch.tensor(nk_W[index] ** 2))
+            if verbose >= 1:
+                print('-'*5)
             sim.solve_global_smatrix()
 
             reflected = torch.sqrt(torch.abs(sim.S_parameters(orders=[0, 0], direction='forward', port='reflection', polarization='xx', ref_order=[
                 0, 0])) ** 2 + torch.abs(sim.S_parameters(orders=[0, 0], direction='forward', port='reflection', polarization='yx', ref_order=[0, 0])) ** 2)
+            print(f'Transmission: {1 - reflected}')
+            # sys.exit()
             reflected_array.append(reflected)
             sim.source_planewave(amplitude=[1., 0.], direction='forward')
             [Ex, Ey, Ez], [Hx, Hy, Hz] = sim.field_xz(
@@ -247,11 +261,13 @@ for iteration in range(100):
         transmitted_array_stacked = 1 - torch.stack(reflected_array)
         # TODO bug (numerical instability)
         if handle_instability:
+            print(torch.argmax(transmitted_array_stacked))
+            print(transmitted_array_stacked[torch.argmax(transmitted_array_stacked)])
             transmitted_array_stacked[torch.argmax(transmitted_array_stacked):torch.argmax(transmitted_array_stacked)+1] = transmitted_array_stacked[torch.argmax(transmitted_array_stacked)-1:torch.argmax(transmitted_array_stacked)]
         if debug:
             print(
                 f'Computed transmission coefficients: {transmitted_array_stacked.flatten().detach().numpy()}')
-            transmitted_array_stacked = np.array(np.load('/Users/raymondiacobacci/declan_emissivity.npy'))
+            # transmitted_array_stacked = np.array(np.load('/Users/raymondiacobacci/declan_emissivity.npy'))
         transmitted_array_stacked = torch.tensor(
             transmitted_array_stacked, requires_grad=True)
         FOM = 1-d_optimize(wavelengths, transmitted_array_stacked,
