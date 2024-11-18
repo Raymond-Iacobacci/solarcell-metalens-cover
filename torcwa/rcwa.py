@@ -10,7 +10,7 @@ class rcwa:
             dtype=torch.complex64,
             device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
             stable_eig_grad=True,
-            avoid_Pinv_instability=False,
+            avoid_Pinv_instability=True,
             max_Pinv_instability=0.005
         ):
 
@@ -1232,6 +1232,8 @@ class rcwa:
         # Eigen-decomposition
         if self.stable_eig_grad is True:
             kz_norm, E_eigvec = Eig.apply(torch.matmul(self.P[-1],self.Q[-1]))
+            print(f'kz_norm: {kz_norm}')
+            print(f'E_eigvec: {E_eigvec}')
         else:
             kz_norm, E_eigvec = torch.linalg.eig(torch.matmul(self.P[-1],self.Q[-1]))
         
@@ -1252,7 +1254,7 @@ class rcwa:
 
             self.Pinv_instability.append(torch.maximum(Pinv_ins_tmp1,Pinv_ins_tmp2))
             self.Qinv_instability.append(torch.maximum(Qinv_ins_tmp1,Qinv_ins_tmp2))
-            print(f'E_eigvec[-1]: {self.E_eigvec[-1].shape}')
+            # print(f'E_eigvec[-1]: {self.E_eigvec[-1].shape}')
             if self.Pinv_instability[-1] < self.max_Pinv_instability:
                 self.H_eigvec.append(torch.matmul(Pinv_tmp,torch.matmul(self.E_eigvec[-1],Kz_norm)))
             else:
@@ -1297,7 +1299,7 @@ class rcwa:
         # Mode coupling coefficients
         C = [[],[]]
         for m in range(len(Cm[0])):
-            print(f'Coupling coefficients to start -- should be empty? {Cm[0][m]}')
+            # print(f'Coupling coefficients to start -- should be empty? {Cm[0][m]}')
             C[0].append(Cm[0][m] + torch.matmul(Cm[1][m],torch.matmul(tmp2,torch.matmul(Sn[1],Sm[0]))))
             C[1].append(torch.matmul(Cm[1][m],torch.matmul(tmp2,Sn[3])))
 
@@ -1305,4 +1307,64 @@ class rcwa:
             C[0].append(torch.matmul(Cn[0][n],torch.matmul(tmp1,Sm[0])))
             C[1].append(Cn[1][n] + torch.matmul(Cn[0][n],torch.matmul(tmp1,torch.matmul(Sm[2],Sn[3]))))
 
+        return [S11, S21, S12, S22], C
+    
+    def _RS_prod_(self, Sm, Sn, Cm, Cn):
+        """
+        Implements the standard Redheffer star product to combine two scattering matrices Sm and Sn,
+        and extends it to include mode coupling coefficients, using PyTorch for automatic differentiation.
+
+        Parameters:
+        - Sm: list of torch tensors [S11m, S21m, S12m, S22m] representing the scattering matrix of subsystem m.
+        - Sn: list of torch tensors [S11n, S21n, S12n, S22n] representing the scattering matrix of subsystem n.
+        - Cm: list [Cf_m, Cb_m], where Cf_m and Cb_m are lists of mode coupling coefficients for subsystem m.
+        - Cn: list [Cf_n, Cb_n], where Cf_n and Cb_n are lists of mode coupling coefficients for subsystem n.
+
+        Returns:
+        - S: list of torch tensors [S11, S21, S12, S22], the combined scattering matrix.
+        - C: list [Cf, Cb], the updated mode coupling coefficients.
+        """
+        # Sm and Sn are lists: [S11, S21, S12, S22]
+        # Cm and Cn are lists: [Cf, Cb], where Cf and Cb are lists of coupling coefficients
+
+        # Identity matrix of appropriate size
+        I = torch.eye(Sm[0].shape[0], device=Sm[0].device)
+
+        # Compute inverse terms
+        inv1 = torch.linalg.inv(I - Sn[0] @ Sm[3])  # inv1 = (I - Sn[0] @ Sm[3])^{-1}
+        inv2 = torch.linalg.inv(I - Sm[3] @ Sn[0])  # inv2 = (I - Sm[3] @ Sn[0])^{-1}
+
+        # Compute the combined scattering matrix using the standard Redheffer star product
+        S11 = Sm[0] + Sm[2] @ inv1 @ Sn[0] @ Sm[1]
+        S12 = Sm[2] @ inv1 @ Sn[2]
+        S21 = Sn[1] @ inv2 @ Sm[1]
+        S22 = Sn[3] + Sn[1] @ inv2 @ Sm[3] @ Sn[2]
+
+        # Initialize the combined mode coupling coefficients
+        C = [[], []]  # C[0]: Cf (forward), C[1]: Cb (backward)
+
+        # Update coupling coefficients for subsystem m
+        for m in range(len(Cm[0])):
+            Cf_m = Cm[0][m]  # Forward coupling coefficient for mode m in subsystem m
+            Cb_m = Cm[1][m]  # Backward coupling coefficient for mode m in subsystem m
+
+            # Update the coupling coefficients
+            Cf = Cf_m + Cb_m @ inv2 @ Sn[1] @ Sm[0]
+            Cb = Cb_m @ inv2 @ Sn[3]
+
+            C[0].append(Cf)
+            C[1].append(Cb)
+
+        # Update coupling coefficients for subsystem n
+        for n in range(len(Cn[0])):
+            Cf_n = Cn[0][n]  # Forward coupling coefficient for mode n in subsystem n
+            Cb_n = Cn[1][n]  # Backward coupling coefficient for mode n in subsystem n
+
+            Cf = Cf_n @ inv1 @ Sm[0]
+            Cb = Cb_n + Cf_n @ inv1 @ Sm[2] @ Sn[3]
+
+            C[0].append(Cf)
+            C[1].append(Cb)
+
+        # Return the combined scattering matrix and mode coupling coefficients
         return [S11, S21, S12, S22], C
