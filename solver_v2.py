@@ -6,7 +6,7 @@ import autograd.numpy as npa
 import numpy as np
 import numpy.typing as npt
 
-
+logging = False
 # Everything in this file is set up for a single dimension of movement. It must be altered to allow for a second dimension.
 
 def quar(mat: npt.ArrayLike) -> np.ndarray:
@@ -53,39 +53,6 @@ def manual_matmul(A, B, threshold = None, dtype = None):  # TODO vectorize for G
     return result
 
 
-def redheffer_star_product(
-    a: npt.ArrayLike, b: npt.ArrayLike
-) -> np.ndarray:
-    """
-    This is a function that takes two matrices and returns their Redheffer star product.
-    """
-    assert (
-        a.shape[0] % 2 == 0
-        and a.shape[1] % 2 == 0
-        and b.shape[0] % 2 == 0
-        and b.shape[1] % 2 == 0
-    ), "Redheffer star product only works for even matrices"
-    a00, a01, a10, a11 = (
-        a[: a.shape[0] // 2, : a.shape[1] // 2],
-        a[: a.shape[0] // 2, a.shape[1] // 2:],
-        a[a.shape[0] // 2:, : a.shape[1] // 2],
-        a[a.shape[0] // 2:, a.shape[1] // 2:],
-    )
-    b00, b01, b10, b11 = (
-        b[: b.shape[0] // 2, : b.shape[1] // 2],
-        b[: b.shape[0] // 2, b.shape[1] // 2:],
-        b[b.shape[0] // 2:, : b.shape[1] // 2],
-        b[b.shape[0] // 2:, b.shape[1] // 2:],
-    )
-    q = a00.shape[0]
-    assert (
-        np.linalg.det(np.eye(q) - a01 @ b10) != 0
-    ), "Redheffer star product only works for matrices with invertible a01@b10"
-    s00 = b00 @ np.linalg.inv(np.eye(q) - a01 @ b10) @ a00
-    s01 = b01 + b00 @ np.linalg.inv(np.eye(q) - a01 @ b10) @ a01 @ b11
-    s10 = a10 + a11 @ np.linalg.inv(np.eye(q) - b10 @ a01) @ b10 @ a00
-    s11 = a11 @ np.linalg.inv(np.eye(q) - b10 @ a01) @ b11
-    return np.block([[s00, s01], [s10, s11]])
 
 
 def extended_redheffer_star_product(mat1: npt.ArrayLike, mat2: npt.ArrayLike) -> np.ndarray:
@@ -95,7 +62,7 @@ def extended_redheffer_star_product(mat1: npt.ArrayLike, mat2: npt.ArrayLike) ->
     '''
     sa00, sa01, sa10, sa11 = quar(mat1)
     sb00, sb01, sb10, sb11 = quar(mat2)
-    identity = np.eye(s00.shape[0])
+    identity = np.eye(sb00.shape[0])
     # This matrix accounts for the infinite reflections (geometric) that occur at each interface
     inf1 = np.linalg.inv(identity - sb00 @ sa11)
     inf2 = np.linalg.inv(identity - sa11 @ sb00)
@@ -181,6 +148,13 @@ class Layer_:
                 )
         return permittivity_convolution_matrix, permeability_convolution_matrix
 
+def printdf(ipt:np.ndarray) -> None:
+    from pandas import DataFrame
+    np.set_printoptions(linewidth=120, precision=6, suppress=True)
+    df = DataFrame(ipt)
+    manual_format = "\n".join(" ".join(f"{val.real:+.6f}{val.imag:+.6f}j" for val in row) for row in ipt)
+    print(df)
+    
 
 class Solver_:
     """
@@ -214,68 +188,312 @@ class Solver_:
         kx0 += np.array([2 * np.pi / self.grating_period *
                         n for n in range(-self.n_harmonics, self.n_harmonics + 1)])
         kx0 = np.diag(kx0)
-        self.external_em_transfer_matrix = self.pq_matrices(self.top_layer, kx0)[
-            1] / np.cos(self.theta) # This has a bug with off-angle incidence
-        self.external_me_transfer_matrix = np.linalg.inv(
-            self.external_em_transfer_matrix)  # TODO verify the other way as well
+        self.external_em_transfer_matrix, self.external_me_transfer_matrix = self.pq_matrices(self.top_layer, kx0) / np.cos(self.theta) # This has a bug with off-angle incidence
+        # print(f'EM transfer matrix (identity?):\n{self.external_em_transfer_matrix}')
+        # self.external_em_transfer_matrix = np.eye(self.external_em_transfer_matrix.shape[0])
+        # self.external_me_transfer_matrix = np.eye(self.external_me_transfer_matrix.shape[0])
 
+        if logging:
+            print(f'External ME transfer matrix computed via PQ matrices:\n{self.external_me_transfer_matrix}')
+        
+        # self.external_me_transfer_matrix = np.linalg.inv(
+        #     self.external_em_transfer_matrix)  # TODO verify the other way as well
+
+        
         self.top_layer.is_incident_layer = True
+        # Dimensionality fix
+        dim = 2*(2 * self.n_harmonics + 1)
+        a = np.eye(dim)
+        b = np.zeros((dim,dim))
+        self.global_scattering_matrix = np.block([[b, a], [a, b]]) # Scattering matrix of free space
 
         # There should be no scattering matrix at the top. Rather, we should take the relative harmonics and multiply them to get the harmonics for every e, h x, y combination throughout the layers.
+        
+        self.W = []
+        self.V = []
+        
+        # vacuum_interface_layer = Layer_(permittivity = np.ones(shape = self.top_layer.permittivity.shape), permeability = np.ones(shape = self.top_layer.permittivity.shape), thickness = 0, n_harmonics = 2*self.n_harmonics+1)
+        kx = np.zeros((2 * self.n_harmonics + 1), dtype=complex)
+        kx[self.n_harmonics] = self.kx0
+        kx += np.array([2 * np.pi / self.grating_period * n for n in range(-self.n_harmonics, self.n_harmonics + 1)])
+        kx = np.diag(kx)
+        vac_p, vac_q = self.pq_matrices(self.top_layer, kx)
+        print(f'Omega squared:')
+        print(vac_p@vac_q)
+        vac_lambda_w, vac_w = np.linalg.eig(vac_p@vac_q)
+        print("Vacuum lambda (I have no idea if this is right or not at this point, I'm just copying the work from the middle layer's code)")
+        print(vac_lambda_w)
+        '''
+        In this situation, the eigenvectors are the basis of the space R^6, ?all values independent?, and this one sits in front of the e^ solution.
+        '''
+        print(f'Vac lambda w before reordering\n{vac_lambda_w}')
+        # TODO verify that the vacuum matrices work just like you verified that the layer matrices work
+        # vac_lambda_w = np.sqrt(vac_lambda_w)
 
+        # fwd_vac_lambda_w = -vac_lambda_w
+        # fwd_vac_lambda_w = np.where(np.real(fwd_vac_lambda_w) > 0, -fwd_vac_lambda_w, fwd_vac_lambda_w)
+        # vac_v_fwd = vac_q @ vac_w @ np.linalg.inv(np.diag(fwd_vac_lambda_w))
+
+        # bwd_vac_lambda_w = -vac_lambda_w
+        # bwd_vac_lambda_w = np.where(np.real(bwd_vac_lambda_w) > 0, -bwd_vac_lambda_w, bwd_vac_lambda_w)
+        # vac_v_bwd = vac_q @ vac_w @ np.linalg.inv(np.diag(bwd_vac_lambda_w))
+        
+        # vac_trns_mat = np.block([[vac_w, vac_w], [-vac_v_bwd, vac_v_fwd]])
+
+        # Find which correspond to which harmonics by doing a n^2 search over them
+        
+        # reorder = [0, -2, 2, 1, -1, 3]
+        # vac_lambda_w = vac_lambda_w[reorder]
+        # vac_w = vac_w[:,reorder]
+        vac_v = vac_q @ vac_w @ np.linalg.inv(np.diag(vac_lambda_w))
+        vac_trns_mat = np.block([[vac_w, vac_w], [-vac_v, vac_v]]) # The bottom row should be negated, not sure why this works but if it's negated then the system breaks so...
+        print('Vacuum transfer matrix:')
+        printdf(vac_trns_mat)
+        '''
+        Now the inverse method will potentially expose why this is an issue...perhaps when we switch domains the magnetic fields get inverted?
+        '''
+
+        print(f'Vacuum v:')
+        printdf(vac_v)
+        print(f'Vacuum w:')
+        printdf(vac_w)
+
+        
         for i, layer in enumerate(self.internal_layer_stack):
+            print(f'Calculating scattering matrix for layer {i+2}')
+            kx = np.zeros((2 * self.n_harmonics + 1), dtype=complex)
+            kx[self.n_harmonics] = self.kx0
+            kx += np.array([2 * np.pi / self.grating_period * n for n in range(-self.n_harmonics, self.n_harmonics + 1)])
+            kx = np.diag(kx)
+            p, q = self.pq_matrices(layer, kx) # good when increasing harmonics
+            '''
+            NOTE
+            Simulating across a single dimension creates incorrect decay of evanescent waves
+            '''
+            lambda_w, w = np.linalg.eig(p@q)
+            print(f'Calculated lambda_w:\n{lambda_w}')
+            lambda_w = -1 * lambda_w # NOTE This line is necessary for single-harmonic work
+            '''
+            The following three lines have no effect on the propagation through a vacuum. Currently, it's reflecting everything when incident to a vacuum.
+            '''
+            
+            # lambda_w = lambda_w[reorder]
+            # w = w[:,reorder]
+            print(f'Direct lambda_w:\n{lambda_w}')
+
+            lambda_w = np.sqrt(lambda_w)
+            v = q @ w @ np.linalg.inv(np.diag(lambda_w)) # How should we handle this when we have two different versions of lambda_w that we use? Forward and backward?
+            print(f'p')
+            printdf(p)
+            print(f'q')
+            printdf(q)
+            print(f'w')
+            printdf(w) # why doesn't this have identity matrix as its [1,4:1,4] elements?
+            print(f'v')
+            printdf(v)
+            # The identical results come from us setting up ky components. If we eliminate those...
+            print(f'Lambda w (layer):\n{lambda_w}')
+            '''
+            Right now, evanescent modes going backwards (since we solve the equation for modes that *have* existed) are subject to immense gain when taking the inverse. We need to flip them, so invert those. It doesn't become singular but it gets close...
+            We need to get one phase matrix going forwards while messing with the real parts, and one going backwards. Then deploy them individually inside the trans phase matrix.
+            '''
+            fwd_lambda_w = -lambda_w
+            fwd_lambda_w = np.where(np.real(fwd_lambda_w) > 0, -fwd_lambda_w, fwd_lambda_w)
+            fwd_phase_matrix = sp.linalg.expm(layer.thickness * np.diag(fwd_lambda_w) * 2 * np.pi / self.wavelength)
+            bwd_lambda_w = np.where(np.real(lambda_w) > 0, -lambda_w, lambda_w)
+            bwd_phase_matrix = sp.linalg.expm(layer.thickness * np.diag(bwd_lambda_w) * 2 * np.pi / self.wavelength)
+            print('Directional lambdas:')
+            print(fwd_lambda_w)
+            print(bwd_lambda_w)
+            # TODO compare these two to ensure sign convention
+            v_fwd = q @ w @ np.linalg.inv(np.diag(fwd_lambda_w))
+            v_bwd = q @ w @ np.linalg.inv(np.diag(bwd_lambda_w))
+            
+            print('V matrices:')
+            printdf(v_fwd)
+            printdf(v_bwd)
+            
+            phase_matrix = sp.linalg.expm(- layer.thickness * 1j * np.diag(lambda_w) * 2 * np.pi/self.wavelength) # we need to add imaginary coefficients to lambda. How do we determine which are forward propagating modes and which are backward propagating? This should be an element the single-harmonic as well...not sure why this doesn't make a difference...maybe no evanescent modes?
+            
+            print(np.linalg.det(phase_matrix))
+            print('phase_matrix')
+
+            printdf(phase_matrix)
+            inv_phase_matrix = np.linalg.inv(phase_matrix)
+            printdf(inv_phase_matrix)
+            
+            
+            trns_mat_phase = np.block([[w @ bwd_phase_matrix, w @ phase_matrix], [v_bwd @ bwd_phase_matrix, -v_fwd @ fwd_phase_matrix]]) # NOTE sign convention extremely suspect here. need to verify
+            trns_mat = np.block([[w, w], [v_fwd, v_bwd]])
+            print('Determinants of directional phase matrices')
+            print(np.linalg.det(fwd_phase_matrix))
+            print(np.linalg.det(bwd_phase_matrix))
+            print('Phase matrices') # It looks like the calculations to get these are working fine. How do we find the solutions at the end? We should verify the signs of the 0-harmonic solutions in the phase matrix.
+            printdf(fwd_phase_matrix)
+            printdf(bwd_phase_matrix)
+
+
+
+
+
+            trns_mat_phase = np.block([[w @ inv_phase_matrix, w @ phase_matrix], [v @ inv_phase_matrix, -v @ phase_matrix]])
+            trns_mat = np.block([[w, w], [v, -v]])
+            print('Arrays part of three layer matrix calculation:')
+            printdf(vac_trns_mat)
+            # print(trns_mat_phase)
+            print('Trans matrix')
+            printdf(trns_mat) # not good when increasing harmonics
+            print(np.linalg.inv(trns_mat))
+            
+            M = np.linalg.inv(trns_mat)@vac_trns_mat
+            m11, m12, m21, m22 = quar(M)
+            print('\n\n')
+            # print(f'm11:\n{m11}')
+            print('m11:')
+            printdf(m11)
+            # print(f'm12:\n{m12}')
+            print('m12:')
+            printdf(m12)
+            # print(f'm21:\n{m21}')
+            print('m21:')
+            printdf(m21)
+            # print(f'm22:\n{m22}')
+            print('m22:')
+            printdf(m22)
+            print(np.linalg.inv(m22))
+            print(-np.linalg.inv(m22)@m21)
+            print(m12@np.linalg.inv(m22))
+            print(m12 @ np.linalg.inv(m22) @ m21) # NOTE these values give the transmitted amplitudes. Compute the reflection and verify it with the Fresnel equations, and then compute the transmission with 1 - the square of that
+            print('\n\n')
+
+            # break
+            
+            
+            three_layer_mat = np.linalg.inv(vac_trns_mat) @ trns_mat_phase @ np.linalg.inv(trns_mat) @ vac_trns_mat
+            print(f'Master matrix:\n{np.abs(three_layer_mat)}')
+            m11, m12, m21, m22 = quar(three_layer_mat)
+            
+            _id = np.zeros(shape = (2*self.n_harmonics + 1))
+            _idi = np.zeros(shape = (2*self.n_harmonics + 1))
+            _idi[self.n_harmonics] = 1
+            id = np.hstack((_idi, _id))
+            
+            '''
+            Not true--we must have 1-a=b since a and b destructively interfere at the boundaries.
+            Also may not remain true when handling nonzero harmonics since light is at angles.
+            '''
+            # iden = np.eye(2 * self.n_harmonics + 1)
+            # indicator = np.linalg.inv(m22) @ m21 @ id + np.linalg.inv(iden + m12) @ (iden - m11) @ id
+            # print(f'Indicator (should be 0 everywhere):\n{indicator}')
+            print(f'm11:\n{m11}')
+            print(f'm12:\n{m12}')
+            print(f'm21:\n{m21}')
+            print(f'm22:\n{m22}')
+            fref_coefs = -np.linalg.inv(m22) @ m21 @ id
+            # print(f'{np.linalg.inv(m22)}')
+            # print(f'{np.linalg.inv(m22) @ m21}')
+            # print(f'Forward reflection:\n{fref_coefs}')
+            ftrns_coefs = m11 @ id + m12 @ fref_coefs
+            bref_coefs = m12 @ np.linalg.inv(m22) @ id
+            btrns_coefs = np.linalg.inv(m22) @ id
+            scattering_matrix = np.block([[fref_coefs, ftrns_coefs], [btrns_coefs, bref_coefs]])
+            print(f'Forward transmission power:\n{np.abs(ftrns_coefs)**2@id}')
+            print(f'Forward reflection power:\n{np.abs(fref_coefs)**2@id}')
+            print(f'Backwards transmission power:\n{np.abs(btrns_coefs)**2@id}')
+            print(f'Backwards reflection power:\n{np.abs(bref_coefs)**2@id}')
+            
+            
+            '''
+            Assert that lambda_w = lambda_v
+            '''
+            break
+            
+            
             kz_components, electric_field_harmonics, magnetic_field_harmonics = self.field_poynting_components(
                 layer)
-            # We want a set of coefficients so that these electric and magnetic field harmonics are consistent between layers
-            forward_propagating_section = (electric_field_harmonics + \
-                manual_matmul(self.external_me_transfer_matrix,
-                              magnetic_field_harmonics, dtype = np.cdouble, threshold = 1e-11)) / 2
-            backward_propagating_section = (electric_field_harmonics - \
-                manual_matmul(self.external_me_transfer_matrix,
-                              magnetic_field_harmonics, dtype = np.cdouble, threshold = 1e-11)) / 2
+            print(f'w the second way:\n{electric_field_harmonics}')
+            phase_matrix = sp.linalg.expm(-layer.thickness * np.diag(kz_components)*2*np.pi/self.wavelength) # Must multiply by the angular frequency...in the z-direction?
+            # magnetic_field_harmonics = np.block([[1, 0],[0, -1]])
+            _, v_electric_field_harmonics, v_magnetic_field_harmonics = self.field_poynting_components(
+                self.top_layer) # Should be the newly constructed vacuum layer -- specific results like [[0, 1], [-1, 0]] should be q I think
+            # 
+            # v_magnetic_field_harmonics = np.block([[-1, 0], [0, 1]])
+            # magnetic_field_harmonics = np.block([[-1, 0], [0, 1]])
+            '''
+            This only refers to the phase matrix in the first vacuum layer. The second vacuum layer (since kx may not be the identity) is irrelevant since we solve for the fields at the interface; effectively we assume that the interface is of limiting thickness 0 in accordance with the Redheffer SP logic. Thus, there is no need for the vacuum phase matrix to handle calculations.
+            '''
+            # v_magnetic_field_harmonics *= -1
+            # magnetic_field_harmonics *= -1
+            v_transfer_matrix = np.block([[v_electric_field_harmonics, v_electric_field_harmonics], [-v_magnetic_field_harmonics, v_magnetic_field_harmonics]])
+            # TODO compare v_transfer_matrix and v_transfer_matrix_2
+            # print(v_transfer_matrix)
 
-            phase_matrix = sp.linalg.expm(-layer.thickness * np.diag(kz_components)) # Must multiply by the angular frequency...in the z-direction?
-            relation_matrix = np.vstack((forward_propagating_section, manual_matmul(backward_propagating_section, phase_matrix)))
-            propagation_matrix = np.hstack((relation_matrix, np.flipud(relation_matrix)))
-            dim = 2  * (2 * self.n_harmonics + 1)
-            end_matrix = np.vstack((np.eye(dim), np.zeros((dim, dim))))
-            backward_propagating_coefficients = np.linalg.solve(propagation_matrix, end_matrix)
-            forward_propagating_coefficients = np.linalg.solve(propagation_matrix, np.flipud(end_matrix))
-            print(f'Forward propagating coefficients:\n{forward_propagating_coefficients}')
-            print(f'Backward propagating coefficients:\n{backward_propagating_coefficients}')
-            should_be_zero = electric_field_harmonics @ phase_matrix @ forward_propagating_coefficients[:dim] + electric_field_harmonics @ forward_propagating_coefficients[dim:]
-            print(f'Should be zero: {should_be_zero}')
-        
-        sys.exit(1)
-        self.bottom_scattering_matrix = self.scattering_matrix(
-            self.bottom_layer
-        )
+            print(f'Layer magnetic harmonics:\n{magnetic_field_harmonics}')
+            magnetic_field_harmonics
+            print(f'Layer electric harmonics:\n{electric_field_harmonics}')
+            print(f'Vacuum transfer matrix:\n{v_transfer_matrix}')
+            
+            m_transfer_matrix_p = np.block([[electric_field_harmonics @ np.linalg.inv(phase_matrix), electric_field_harmonics @ phase_matrix], [-magnetic_field_harmonics @ np.linalg.inv(phase_matrix), magnetic_field_harmonics @ phase_matrix]])
+            m_transfer_matrix = np.block([[electric_field_harmonics , electric_field_harmonics ], [-magnetic_field_harmonics , magnetic_field_harmonics ]])
+            
+            print(f'Electric field harmonic solutions in the vacuum:\n{v_electric_field_harmonics}')
+            print(f'Magnetic field harmonic solutions in the vacuum:\n{v_magnetic_field_harmonics}')
+            
+            '''
+            This master matrix solves the equation for the downwards reflection and transmission coefficients, when a material layer is bookended by two vacuum layers. In effect, we solve the system of equations 
+            1. Mv * [invpropv, propv] * coefsv = Mm * coefsm
+            2. Mm * [invpropm, propm] * coefsm = Mv * coefsv
+            to match the sx and sy components at both the interfaces, propagating the wave from its starting points. We can verify these results with standardized solvers for test cases, and we can back-compute the electric fields in the x- and y-directions to solve for the results. There IS an electric field in the z-direction since most waves will not be perfectly incident to the normal plane, but this is fixed via sx, sy, and p[oynting vector].
+            '''
+            print(f'v transfer matrix:\n{v_transfer_matrix}\nInverse:\n{np.linalg.inv(v_transfer_matrix)}\nDeterminant:\n{np.linalg.det(v_transfer_matrix)}')
+            print(f'm transfer matrix:\n{m_transfer_matrix}\nInverse:\n{np.linalg.inv(m_transfer_matrix)}\nDeterminant:\n{np.linalg.det(m_transfer_matrix)}')
+            
+            master_matrix = np.linalg.inv(v_transfer_matrix) @ m_transfer_matrix_p @ np.linalg.inv(m_transfer_matrix) @ v_transfer_matrix
+            
+            # master_matrix = np.linalg.inv(v_transfer_matrix) @ np.linalg.inv(m_transfer_matrix) @ v_transfer_matrix
+            
+            print(f'Master matrix:\n{np.abs(master_matrix)}')
+            m11, m12, m21, m22 = quar(master_matrix)
+            
+            _id = np.zeros(shape = (2*self.n_harmonics + 1))
+            _idi = np.zeros(shape = (2*self.n_harmonics + 1))
+            _idi[self.n_harmonics] = 1
+            id = np.hstack((_idi, _id))
+            print(f'ID:\n{id}')
+            
+            iden = np.eye(2 * self.n_harmonics + 1)
+            # indicator = np.linalg.inv(m22) @ m21 @ id + np.linalg.inv(iden + m12) @ (iden - m11) @ id
+            # print(f'Indicator (should be 0 everywhere):\n{indicator}')
+            # print(m12+iden)
+            print(f'm11:\n{m11}')
+            
+            print(f'm22:\n{m22}')
+            fref_coefs = -np.linalg.inv(m22) @ m21 @ id
+            print(f'{np.linalg.inv(m22)}')
+            print(f'{np.linalg.inv(m22) @ m21}')
+            print(f'Forward reflection:\n{fref_coefs}')
+            ftrns_coefs = m11 @ id + m12 @ fref_coefs
+            
+            bref_coefs = m12 @ np.linalg.inv(m22) @ id
+            btrns_coefs = np.linalg.inv(m22) @ id
+            scattering_matrix = np.block([[fref_coefs, ftrns_coefs], [btrns_coefs, bref_coefs]])
+            # print(f'Layer {i} scattering matrix:\n{scattering_matrix}')
+            print(f'Transmitted power ratio:\n{np.abs(ftrns_coefs)}')
+            print(np.abs(fref_coefs))
+            print(np.abs(btrns_coefs))
+            print(np.abs(bref_coefs))
+            
+            '''
+            We should have v_transfer_matrix @ transfer_matrix ** -1 @ v_transfer_matrix @ [1, a] = [b, 0]
+            Then we have a = -m21/m22
+            Then we have b = m11 - m12 * m21/m22
+            We do one calculation top-down to get s00 and s01 and then another bottom-up to get the other halves of the scattering matrix.
+            '''
 
-        self.internal_layer_scattering_matrices = [
-            self.scattering_matrix(layer)
-            for layer in self.internal_layer_stack
-        ]
-
-        self.global_scattering_matrix = self.top_scattering_matrix
-        self.mode_coef_forward_preprop = []
-        self.mode_coef_forward_postprop = []
-        self.mode_coef_backward_preprop = []
-        self.mode_coef_backward_postprop = []  # Python initializes by reference
-
-        for i, layer_matrix in enumerate(self.internal_layer_scattering_matrices + [self.bottom_scattering_matrix]):
-            self.global_scattering_matrix = extended_redheffer_star_product(
-                self.global_scattering_matrix, layer_matrix)
-
-        '''
-        We compute the whole scattering matrix, and *then* the mode coefficients by moving the values around each matrix.
-        '''
-
-        print(
-            f'Top (incident) scattering matrix:\n{self.top_scattering_matrix}')
-        print(
-            f'First internal scattering matrices:\n{self.internal_layer_scattering_matrices[0]}')
-        print(f'Bottom scattering matrix:\n{self.bottom_scattering_matrix}')
-        sys.exit(1)
+            break
+        self.ans = 1 - np.abs(self.global_scattering_matrix[0, 0])
+    def soln(self):
+        return "Finished"#self.ans
 
     def field_poynting_components(self, layer: Layer_) -> np.ndarray:
         """
@@ -289,6 +507,7 @@ class Solver_:
         p, q = self.pq_matrices(layer, kx)
         kz_components_squared, electric_field_harmonics = np.linalg.eig(
             manual_matmul(p, q))
+        
         # Handle directionality here
         # Now we handle the case where we didn't have a FR matrix, and hence we have unbounded numbers of harmonics
         '''
@@ -299,13 +518,15 @@ class Solver_:
         # This must correspond to the direction of propagation, so if it's in the negative z-direction, we 
         # kz_components = np.where(np.imag(kz_components) < 0, np.conj(kz_components), kz_components)
         kz_components = np.where(np.real(kz_components) < 0, -np.conj(kz_components), kz_components)
+        if logging:
+            print(f'Kz components:\n{kz_components}')
         # Multiplication should be well defined here? TODO solve the other way and verify that the computed values are identical
         
-        print(f'Kz components:\n{kz_components}')
-        # print(f'Electric field harmonics:\n{electric_field_harmonics}')
+        magnetic_field_harmonics = manual_matmul(q, electric_field_harmonics, np.linalg.inv(np.diag(kz_components)))
         
-        magnetic_field_harmonics = manual_matmul(manual_matmul(
-            q, electric_field_harmonics), np.linalg.inv(np.diag(kz_components)))
+        # magnetic_field_harmonics = manual_matmul(manual_matmul(
+        #     q, electric_field_harmonics), np.linalg.inv(np.diag(kz_components*1j)))
+        
         # magnetic_field_harmonics = manual_matmul(q, electric_field_harmonics)
         return kz_components, electric_field_harmonics, magnetic_field_harmonics
 
@@ -328,9 +549,29 @@ class Solver_:
             permittivity_convolution
         q11 = -ky @ np.linalg.inv(permeability_convolution) @ kx
         q = np.block([[q00, q01], [q10, q11]])
+        return p, q
+    
+    def zero_block(self) -> np.ndarray:
+        return np.zeros(shape = (2 * self.n_harmonics + 1, 2 * self.n_harmonics + 1))
+    def id_block(self) -> np.ndarray:
+        return np.eye(2 * self.n_harmonics + 1)
+
+    def pq_matrices_1d(self, layer: Layer_, kx: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        e_conv_mat, u_conv_mat = layer.layer_distribution_convolution_matrices()
+
+        p00 = self.zero_block()
+        p01 = u_conv_mat - kx @ np.linalg.inv(e_conv_mat) @ kx
+        p10 = -u_conv_mat
+        p11 = self.zero_block()
+        p = np.block([[p00, p01], [p10, p11]])
+
+        q00 = self.zero_block()
+        q01 = e_conv_mat - kx @ np.linalg.inv(u_conv_mat) @ kx
+        q10 = -e_conv_mat
+        q11 = self.zero_block()
+        q = np.block([[q00, q01], [q10, q11]])
 
         return p, q
-
 
     # def electric_field(self, layer: Layer_) -> np.ndarray:
     #     """

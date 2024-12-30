@@ -8,3 +8,4 @@
 # Add y-grating period and x-grating period
 # Replace all relevant multiplications with manual multiplications with thresholding
 # Make np.solve stable
+# Make a vacuum layer

@@ -1,3 +1,19 @@
 {
-    "python.analysis.typeCheckingMode": "off"
+    "python.analysis.typeCheckingMode": "off",
+    "C_Cpp.default.compilerPath": "/usr/local/bin/g++-14",
+    "cody.agentic.context.experimentalShell": false,
+    "cody.agentic.context.experimentalOptions": {
+        "shell": {
+            "allow": [
+                "ls",
+                "find",
+                "cat",
+            ],
+            "block": [
+                "history",
+                "sudo",
+                "rm"
+            ]
+        }
+    }
 }
