@@ -272,7 +272,7 @@ class Solver_:
             '''
             lambda_w, w = np.linalg.eig(p@q)
             print(f'Calculated lambda_w:\n{lambda_w}')
-            lambda_w = -1 * lambda_w # NOTE This line is necessary for single-harmonic work
+            # lambda_w = -1 * lambda_w # NOTE This line is necessary for single-harmonic work
             '''
             The following three lines have no effect on the propagation through a vacuum. Currently, it's reflecting everything when incident to a vacuum.
             '''
@@ -297,11 +297,21 @@ class Solver_:
             Right now, evanescent modes going backwards (since we solve the equation for modes that *have* existed) are subject to immense gain when taking the inverse. We need to flip them, so invert those. It doesn't become singular but it gets close...
             We need to get one phase matrix going forwards while messing with the real parts, and one going backwards. Then deploy them individually inside the trans phase matrix.
             '''
-            fwd_lambda_w = -lambda_w
-            fwd_lambda_w = np.where(np.real(fwd_lambda_w) > 0, -fwd_lambda_w, fwd_lambda_w)
-            fwd_phase_matrix = sp.linalg.expm(layer.thickness * np.diag(fwd_lambda_w) * 2 * np.pi / self.wavelength)
-            bwd_lambda_w = np.where(np.real(lambda_w) > 0, -lambda_w, lambda_w)
+            
+            # fwd_lambda_w = -lambda_w #/ -1j
+            fwd_lambda_w = lambda_w
+            fwd_lambda_w = np.where(np.real(fwd_lambda_w) < 0, -fwd_lambda_w, fwd_lambda_w)
+            fwd_phase_matrix = sp.linalg.expm(-layer.thickness * np.diag(fwd_lambda_w) * 2 * np.pi / self.wavelength)
+            # TODO correct lambda forward to handle j
+            fwd_lambda_w *= 1j
+            bwd_lambda_w = lambda_w #/ -1j
+            bwd_lambda_w = np.where(np.real(bwd_lambda_w) > 0, -bwd_lambda_w, bwd_lambda_w)
             bwd_phase_matrix = sp.linalg.expm(layer.thickness * np.diag(bwd_lambda_w) * 2 * np.pi / self.wavelength)
+            # TODO correct lambda backward to handle j
+            bwd_lambda_w *= 1j
+            
+            
+            
             print('Directional lambdas:')
             print(fwd_lambda_w)
             print(bwd_lambda_w)
@@ -323,8 +333,8 @@ class Solver_:
             printdf(inv_phase_matrix)
             
             
-            trns_mat_phase = np.block([[w @ bwd_phase_matrix, w @ phase_matrix], [v_bwd @ bwd_phase_matrix, -v_fwd @ fwd_phase_matrix]]) # NOTE sign convention extremely suspect here. need to verify
-            trns_mat = np.block([[w, w], [v_fwd, v_bwd]])
+            trns_mat_phase = np.block([[w @ bwd_phase_matrix, w @ fwd_phase_matrix], [-v_bwd @ bwd_phase_matrix, v_fwd @ fwd_phase_matrix]]) # NOTE sign convention extremely suspect here. need to verify
+            trns_mat = np.block([[w, w], [-v_bwd, v_fwd]])
             print('Determinants of directional phase matrices')
             print(np.linalg.det(fwd_phase_matrix))
             print(np.linalg.det(bwd_phase_matrix))
@@ -336,8 +346,8 @@ class Solver_:
 
 
 
-            trns_mat_phase = np.block([[w @ inv_phase_matrix, w @ phase_matrix], [v @ inv_phase_matrix, -v @ phase_matrix]])
-            trns_mat = np.block([[w, w], [v, -v]])
+            # trns_mat_phase = np.block([[w @ inv_phase_matrix, w @ phase_matrix], [v @ inv_phase_matrix, -v @ phase_matrix]])
+            # trns_mat = np.block([[w, w], [v, -v]])
             print('Arrays part of three layer matrix calculation:')
             printdf(vac_trns_mat)
             # print(trns_mat_phase)
