@@ -378,7 +378,6 @@ class Solver_:
 
             # break
             
-            
             three_layer_mat = np.linalg.inv(vac_trns_mat) @ trns_mat_phase @ np.linalg.inv(trns_mat) @ vac_trns_mat
             print(f'Master matrix:\n{np.abs(three_layer_mat)}')
             m11, m12, m21, m22 = quar(three_layer_mat)
@@ -386,7 +385,8 @@ class Solver_:
             _id = np.zeros(shape = (2*self.n_harmonics + 1))
             _idi = np.zeros(shape = (2*self.n_harmonics + 1))
             _idi[self.n_harmonics] = 1
-            id = np.hstack((_idi, _id))
+            id = np.hstack((_id, _idi))
+            print(f'ID:\n{id}')
             
             '''
             Not true--we must have 1-a=b since a and b destructively interfere at the boundaries.
@@ -407,10 +407,13 @@ class Solver_:
             bref_coefs = m12 @ np.linalg.inv(m22) @ id
             btrns_coefs = np.linalg.inv(m22) @ id
             scattering_matrix = np.block([[fref_coefs, ftrns_coefs], [btrns_coefs, bref_coefs]])
-            print(f'Forward transmission power:\n{np.abs(ftrns_coefs)**2@id}')
-            print(f'Forward reflection power:\n{np.abs(fref_coefs)**2@id}')
-            print(f'Backwards transmission power:\n{np.abs(btrns_coefs)**2@id}')
-            print(f'Backwards reflection power:\n{np.abs(bref_coefs)**2@id}')
+            print('\nScattering matrix:\n')
+            printdf(scattering_matrix)
+            print('\n')
+            print(f'Forward transmission power:\n{np.sum(np.abs(ftrns_coefs)**2)}')
+            print(f'Forward reflection power:\n{np.sum(np.abs(fref_coefs)**2)}')
+            print(f'Backwards transmission power:\n{np.sum(np.abs(btrns_coefs)**2)}')
+            print(f'Backwards reflection power:\n{np.sum(np.abs(bref_coefs)**2)}')
             
             
             '''
