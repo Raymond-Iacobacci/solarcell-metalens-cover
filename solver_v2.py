@@ -230,6 +230,9 @@ class Solver_:
         printdf(vac_v)
         print(f'Vacuum w:')
         printdf(vac_w)
+        
+        
+        
 
         for i, layer in enumerate(self.internal_layer_stack):
             print(f'Calculating scattering matrix for layer {i+2}')
@@ -276,17 +279,13 @@ class Solver_:
 
             # fwd_lambda_w = -lambda_w #/ -1j
             fwd_lambda_w = lambda_w
-            fwd_lambda_w = np.where(
-                np.real(fwd_lambda_w) < 0, -fwd_lambda_w, fwd_lambda_w)
-            fwd_phase_matrix = sp.linalg.expm(-layer.thickness * np.diag(
-                fwd_lambda_w) * 2 * np.pi / self.wavelength)
+            fwd_lambda_w = np.where(np.real(fwd_lambda_w) < 0, -fwd_lambda_w, fwd_lambda_w)
+            fwd_phase_matrix = sp.linalg.expm(-layer.thickness * np.diag(fwd_lambda_w) * 2 * np.pi / self.wavelength)
             # TODO correct lambda forward to handle j
             fwd_lambda_w *= 1j
             bwd_lambda_w = lambda_w  # / -1j
-            bwd_lambda_w = np.where(
-                np.real(bwd_lambda_w) > 0, -bwd_lambda_w, bwd_lambda_w)
-            bwd_phase_matrix = sp.linalg.expm(
-                layer.thickness * np.diag(bwd_lambda_w) * 2 * np.pi / self.wavelength)
+            bwd_lambda_w = np.where(np.real(bwd_lambda_w) >= 0, -bwd_lambda_w, bwd_lambda_w)
+            bwd_phase_matrix = sp.linalg.expm(layer.thickness * np.diag(bwd_lambda_w) * 2 * np.pi / self.wavelength)
             # TODO correct lambda backward to handle j
             bwd_lambda_w *= 1j
 
@@ -314,8 +313,8 @@ class Solver_:
 
             # NOTE sign convention extremely suspect here. need to verify
             trns_mat_phase = np.block(
-                [[w @ bwd_phase_matrix, w @ fwd_phase_matrix], [-v_bwd @ bwd_phase_matrix, v_fwd @ fwd_phase_matrix]])
-            trns_mat = np.block([[w, w], [-v_bwd, v_fwd]])
+                [[w @ bwd_phase_matrix, w @ fwd_phase_matrix], [v_bwd @ bwd_phase_matrix, v_fwd @ fwd_phase_matrix]])
+            trns_mat = np.block([[w, w], [v_bwd, v_fwd]])
             print('Determinants of directional phase matrices')
             print(np.linalg.det(fwd_phase_matrix))
             print(np.linalg.det(bwd_phase_matrix))
@@ -602,3 +601,9 @@ class Solver_:
     #     eigenvalues, eigenvectors = np.linalg.eig(omega_squared)
     #     w, lambda_ = eigenvalues, np.sqrt(eigenvectors)
     #     return np.array([], dtype=np.cdouble)
+
+# class Solver_v2: # v2
+#     def __init__(
+#         self, layer_stack: typing.List[Layer_],
+        
+#     )
