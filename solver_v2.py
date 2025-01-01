@@ -77,29 +77,20 @@ def extended_redheffer_star_product(mat1: npt.ArrayLike, mat2: npt.ArrayLike) ->
     sc = np.block([[sc00, sc01], [sc10, sc11]])
     return sc
 
-
-class Layer_:
+class Layer:
     """
     Class for defining a single layer of a layer stack used in a simulation
     """
 
-    def __init__(
-        self,
-        permeability: npt.ArrayLike,
-        permittivity: npt.ArrayLike,
-        thickness: float,
-        is_incident_layer: bool = False,
-        n_harmonics: int = 1,
-    ):
+    def __init__(self, permeability: npt.ArrayLike, permittivity: npt.ArrayLike, thickness: float, is_incident_layer: bool = False, n_harmonics: int = 1):
         """
         No crystal should be created beforehand. We interpret everything the same way so debugging is easier.
         """
         self.permittivity = permittivity
         self.permeability = permeability
         self.thickness = thickness
-        # This may become useful depending on how the calculations are implemented
-        self.is_incident_layer = is_incident_layer
         self.n_harmonics = n_harmonics
+        self.is_vacuum = np.max(np.abs(self.permittivity)) == 1 and np.min(np.abs(self.permittivity)) == 1 and np.max(np.abs(self.permeability)) == 1 and np.min(np.abs(self.permeability)) == 1
 
     def layer_distribution_convolution_matrices(self) -> tuple[np.ndarray, np.ndarray]:
         # Initialize convolution matrices
@@ -126,15 +117,11 @@ class Layer_:
 
         return permittivity_convolution_matrix, permeability_convolution_matrix
 
-
-
-def printdf(ipt: np.ndarray) -> None:
-    from pandas import DataFrame
-    np.set_printoptions(linewidth=120, precision=6, suppress=True)
-    df = DataFrame(ipt)
-    manual_format = "\n".join(
-        " ".join(f"{val.real:+.6f}{val.imag:+.6f}j" for val in row) for row in ipt)
-    print(df)
+class Solver:
+    def __init__(self, layer_stack: typing.List[Layer], grating_period: float, wavelength: float, n_harmonics: int = 0, theta: float = 0):
+        self.layer_stack = layer_stack
+        assert self.layer_stack[0].is_vacuum and self.layer_stack[-1].is_vacuum
+        
 
 
 class Solver_:

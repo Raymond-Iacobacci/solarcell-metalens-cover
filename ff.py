@@ -3,6 +3,8 @@ import ast
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 
+import pandas as pd
+
 
 def read_boolean_file(file_path):
     with open(file_path, "r") as file:
@@ -40,3 +42,10 @@ def plotLens(array):
     plt.figure(figsize=(10, 5))
     plt.step(range(len(array)), array, where="post")
     plt.show()
+
+def printdf(ipt: np.ndarray) -> None:
+    np.set_printoptions(linewidth=120, precision=6, suppress=True)
+    df = pd.DataFrame(ipt)
+    manual_format = "\n".join(
+        " ".join(f"{val.real:+.6f}{val.imag:+.6f}j" for val in row) for row in ipt)
+    print(df)
