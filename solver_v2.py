@@ -284,7 +284,7 @@ class Solver_:
             # TODO correct lambda forward to handle j
             fwd_lambda_w *= 1j
             bwd_lambda_w = lambda_w  # / -1j
-            bwd_lambda_w = np.where(np.real(bwd_lambda_w) >= 0, -bwd_lambda_w, bwd_lambda_w)
+            bwd_lambda_w = np.where(np.real(bwd_lambda_w) > 0, -bwd_lambda_w, bwd_lambda_w) #removed the = sign
             bwd_phase_matrix = sp.linalg.expm(layer.thickness * np.diag(bwd_lambda_w) * 2 * np.pi / self.wavelength)
             # TODO correct lambda backward to handle j
             bwd_lambda_w *= 1j
@@ -313,8 +313,8 @@ class Solver_:
 
             # NOTE sign convention extremely suspect here. need to verify
             trns_mat_phase = np.block(
-                [[w @ bwd_phase_matrix, w @ fwd_phase_matrix], [v_bwd @ bwd_phase_matrix, v_fwd @ fwd_phase_matrix]])
-            trns_mat = np.block([[w, w], [v_bwd, v_fwd]])
+                [[w @ bwd_phase_matrix, w @ fwd_phase_matrix], [v_bwd @ -bwd_phase_matrix, v_fwd @ fwd_phase_matrix]])
+            trns_mat = np.block([[w, w], [-v_bwd, v_fwd]]) # removing = and adding negatives in front of these fixes it
             print('Determinants of directional phase matrices')
             print(np.linalg.det(fwd_phase_matrix))
             print(np.linalg.det(bwd_phase_matrix))
@@ -406,11 +406,11 @@ class Solver_:
                 f'Backwards transmission power:\n{np.sum(np.abs(btrns_coefs)**2)}')
             print(
                 f'Backwards reflection power:\n{np.sum(np.abs(bref_coefs)**2)}')
-
+            self.global_scattering_matrix = extended_redheffer_star_product(self.global_scattering_matrix, scattering_matrix)
             '''
             Assert that lambda_w = lambda_v
             '''
-            break
+            continue
 
             kz_components, electric_field_harmonics, magnetic_field_harmonics = self.field_poynting_components(
                 layer)
@@ -508,7 +508,13 @@ class Solver_:
         self.ans = 1 - np.abs(self.global_scattering_matrix[0, 0])
 
     def soln(self):
-        return "Finished"  # self.ans
+        _id = np.zeros(shape=(2*self.n_harmonics + 1))
+        _idi = np.zeros(shape=(2*self.n_harmonics + 1))
+        _idi[0] = 1
+        id = np.hstack((_idi, id))
+        
+        
+        return self.global_scattering_matrix @ id
 
     def field_poynting_components(self, layer: Layer_) -> np.ndarray:
         """
