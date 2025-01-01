@@ -374,6 +374,8 @@ class Solver_:
             _idi[self.n_harmonics] = 1
             id = np.hstack((_id, _idi))
             print(f'ID:\n{id}')
+            id = np.linalg.inv(w) @ id
+            print(f'ID 2:\n{id}')
 
             '''
             Not true--we must have 1-a=b since a and b destructively interfere at the boundaries.
