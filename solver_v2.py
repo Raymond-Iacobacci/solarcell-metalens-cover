@@ -116,8 +116,8 @@ class Solver:
         vac_lambda_w, vac_w = np.linalg.eig(vac_p @ vac_q)
         vac_v = vac_q @ vac_w @ np.linalg.inv(np.diag(vac_lambda_w))
         vac_trns_matrix = np.block([[vac_w, vac_w], [-vac_v, vac_v]])
-        # print('Vacuum transfer matrix:')
-        # ff.printdf(vac_trns_matrix)
+        print('Vacuum transfer matrix:')
+        ff.printdf(vac_trns_matrix)
 
         for i, layer in enumerate(self.layer_stack[1:]):
             p, q = self.pq_matrices(layer, self.kx0)
