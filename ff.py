@@ -2,9 +2,53 @@ import ast
 
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
+import numpy.typing as npt
 
-import pandas as pd
+import pandas as pd  # type: ignore
 
+def quar(mat: npt.ArrayLike) -> np.ndarray:
+    assert mat.shape[0] == mat.shape[1]
+    assert mat.shape[0] % 2 == 0
+    mid = int(mat.shape[0] / 2)
+    return np.array([mat[:mid, :mid], mat[:mid, mid:], mat[mid:, :mid], mat[mid:, mid:]])
+
+# TODO vectorize for GPU use and give errors
+def manual_matmul(A, B, threshold=None, dtype=None):
+    if dtype is None:
+        dtype = np.cdouble
+    else:
+        dtype = np.dtype(dtype)
+    """
+    Manually performs matrix multiplication between two NumPy arrays A and B.
+
+    Parameters:
+    - A: NumPy array of shape (m, n)
+    - B: NumPy array of shape (n, p)
+
+    Returns:
+    - result: NumPy array of shape (m, p) resulting from A x B
+    """
+
+    # Get the dimensions of the input matrices
+    a_rows, a_cols = A.shape
+    b_rows, b_cols = B.shape
+
+    # Check if the matrices can be multiplied
+    if a_cols != b_rows:
+        raise ValueError("Incompatible dimensions for matrix multiplication.")
+
+    # Initialize the result matrix with zeros
+    # This class has worked so far to elim half-zero errors
+    result = np.zeros((a_rows, b_cols), dtype=dtype)
+
+    # Perform the matrix multiplication manually
+    for i in range(a_rows):
+        for j in range(b_cols):
+            for k in range(a_cols):  # or range(b_rows)
+                result[i, j] += A[i, k] * B[k, j]
+    if threshold is not None:
+        result[np.abs(result) < threshold] *= 0
+    return result
 
 def read_boolean_file(file_path):
     with open(file_path, "r") as file:
