@@ -134,11 +134,12 @@ class Solver:
             bwd_omega = w @ np.diag(bwd_lambda_w) @ np.linalg.inv(w)
             bwd_prop_matrix = sp.linalg.expm(bwd_omega * -layer.thickness)
             
-            trns_matrix = np.block([[self.id_block('double'), self.id_block('double')], [-q, q]])
+            trns_matrix = np.block([[self.id_block('double'), self.id_block('double')], [q @ np.linalg.inv(np.diag(bwd_lambda_w) * -1j), q @ np.linalg.inv(np.diag(fwd_lambda_w)) * -1j]])
             print((trns_matrix))
             M1 = np.linalg.inv(trns_matrix) @ vac_trns_matrix
             m11, m12, m21, m22 = ff.quar(M1)
-            print(m11, m12, m21, m22)
+            print(M1)
+            # print(m11, m12, m21, m22)
             id = [1, 0]
             fref_coefs = -np.linalg.inv(m22) @ m21 @ id
             print(fref_coefs)
