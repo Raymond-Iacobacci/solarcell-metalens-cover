@@ -318,9 +318,8 @@ def eigendecomposition_qr(M, max_iterations=1000, tol=1e-10):
             print(f"Converged in {it+1} iterations.")
             break
         
-        A = A_next
-    else:
-        print("QR algorithm did not converge within the maximum number of iterations.")
+        # else:
+        #     print("QR algorithm did not converge within the maximum number of iterations.")
     
     # Extract eigenvalues from the diagonal
     eigenvalues = np.diagonal(A)

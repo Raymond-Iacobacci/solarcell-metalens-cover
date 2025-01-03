@@ -113,36 +113,22 @@ class Solver:
         self.kx0 = self.kx_matrix(np.sin(self.theta))
 
         vac_p, vac_q = self.pq_matrices(self.layer_stack[0], self.kx0)
-        # vac_lambda_w_sqr, vac_w = np.linalg.eig(vac_p @ vac_q)
-        print(vac_p @ vac_q)
-        # vac_w, vac_lambda_w_sqr, vac_res_decomp, vac_res_evals = ff.custom_eigendecomposition(vac_p @ vac_q)
         vac_lambda_w_sqr = ff.eigendecomposition_qr(vac_p @ vac_q)
         vac_w = ff.find_eigenvectors(vac_lambda_w_sqr, vac_p @ vac_q)
 
-        # vac_lambda_w_sqr = [vac_lambda_w_sqr[itr, itr] for itr in range(vac_lambda_w_sqr.shape[0])]
         vac_lambda_w = np.sqrt(vac_lambda_w_sqr)
-        print(vac_lambda_w)
-        print(vac_p @ vac_q - vac_lambda_w_sqr @ np.eye(len(vac_lambda_w_sqr)))
         
         vac_fwd_lambda_w = np.where(np.real(vac_lambda_w) < 0, -vac_lambda_w, vac_lambda_w)
         vac_bwd_lambda_w = np.where(np.real(vac_lambda_w) >= 0, -vac_lambda_w, vac_lambda_w)
         vac_trns_matrix = np.block([[self.id_block('double'), self.id_block('double')], [vac_q @ np.linalg.inv(np.diag(vac_bwd_lambda_w)) * -1j, vac_q @ np.linalg.inv(np.diag(vac_fwd_lambda_w)) * -1j]]) # NOTE: sign convention
         
-        # vac_v = vac_q @ vac_w @ np.linalg.inv(np.diag(vac_lambda_w))
-        # vac_trns_matrix = np.block([[vac_w, vac_w], [-vac_v, vac_v]])
-        # print('Vacuum transfer matrix:')
-        # ff.printdf(vac_trns_matrix)
-
         for i, layer in enumerate(self.layer_stack[1:]):
             p, q = self.pq_matrices(layer, self.kx0)
             
-            # lambda_w_sqr, w = np.linalg.eig(p @ q) # Eigenvectors, Eigenvalues pairings are unique to each matrix, and the Eigenvectors of a matrix are the Eigenvectors of the square of the matrix
-            # w, lambda_w_sqr, res_decomp, res_evals = ff.custom_eigendecomposition(p @ q)
             lambda_w_sqr = ff.eigendecomposition_qr(p @ q)
             w = ff.find_eigenvectors(lambda_w_sqr, p @ q)
-            # lambda_w_sqr = [lambda_w_sqr[itr, itr] for itr in range(lambda_w_sqr.shape[0])]
+            
             lambda_w = np.sqrt(lambda_w_sqr)
-            print(lambda_w)
             
             fwd_lambda_w = np.where(np.real(lambda_w) < 0, -lambda_w, lambda_w)
             fwd_omega = w @ np.diag(fwd_lambda_w) @ np.linalg.inv(w)
@@ -152,9 +138,9 @@ class Solver:
             
             bwd_omega = w @ np.diag(bwd_lambda_w) @ np.linalg.inv(w)
             bwd_prop_matrix = sp.linalg.expm(bwd_omega * layer.thickness)
+            
             trns_matrix = np.block([[self.id_block('double'), self.id_block('double')], [q @ np.linalg.inv(np.diag(bwd_lambda_w)) * -1j, q @ np.linalg.inv(np.diag(fwd_lambda_w)) * -1j]])
-            ff.printdf(trns_matrix)
-            ff.printdf(vac_trns_matrix)
+
             M1 = np.linalg.inv(trns_matrix) @ vac_trns_matrix
             m11, m12, m21, m22 = ff.quar(M1)
             fref_coefs = -np.linalg.inv(m22) @ m21
