@@ -142,8 +142,9 @@ class Solver:
             
             lambda_w_sqr, w = np.linalg.eig(p @ q) # Eigenvectors, Eigenvalues pairings are unique to each matrix, and the Eigenvectors of a matrix are the Eigenvectors of the square of the matrix
             print(f'Lambda before:\n{lambda_w_sqr}')
-            w, lambda_w_sqr, res_decomp, res_evals = ff.custom_eigendecomposition(p @ q)
-            lambda_w_sqr = [lambda_w_sqr[itr, itr] for itr in range(lambda_w_sqr.shape[0])]
+            # w, lambda_w_sqr, res_decomp, res_evals = ff.custom_eigendecomposition(p @ q)
+            # lambda_w_sqr = [lambda_w_sqr[itr, itr] for itr in range(lambda_w_sqr.shape[0])]
+            lambda_w_sqr, w = np.linalg.eig(p @ q)
             print(f'Lambda after:\n{lambda_w_sqr}')
             lambda_w = np.sqrt(lambda_w_sqr)
             # lambda_w = lambda_w[reorder]
