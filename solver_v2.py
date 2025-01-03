@@ -113,7 +113,9 @@ class Solver:
         self.kx0 = self.kx_matrix(np.sin(self.theta))
 
         vac_p, vac_q = self.pq_matrices(self.layer_stack[0], self.kx0)
-        vac_lambda_w_sqr, vac_w = np.linalg.eig(vac_p @ vac_q)
+        # vac_lambda_w_sqr, vac_w = np.linalg.eig(vac_p @ vac_q)
+        vac_w, vac_lambda_w_sqr, vac_res_decomp, vac_res_evals = ff.custom_eigendecomposition(vac_p @ vac_q)
+        vac_lambda_w_sqr = [vac_lambda_w_sqr[itr, itr] for itr in range(vac_lambda_w_sqr.shape[0])]
         vac_lambda_w = np.sqrt(vac_lambda_w_sqr)
         def generate_random_ordering(size):
             from random import shuffle
@@ -140,11 +142,9 @@ class Solver:
         for i, layer in enumerate(self.layer_stack[1:]):
             p, q = self.pq_matrices(layer, self.kx0)
             
-            lambda_w_sqr, w = np.linalg.eig(p @ q) # Eigenvectors, Eigenvalues pairings are unique to each matrix, and the Eigenvectors of a matrix are the Eigenvectors of the square of the matrix
-            print(f'Lambda before:\n{lambda_w_sqr}')
-            # w, lambda_w_sqr, res_decomp, res_evals = ff.custom_eigendecomposition(p @ q)
-            # lambda_w_sqr = [lambda_w_sqr[itr, itr] for itr in range(lambda_w_sqr.shape[0])]
-            lambda_w_sqr, w = np.linalg.eig(p @ q)
+            # lambda_w_sqr, w = np.linalg.eig(p @ q) # Eigenvectors, Eigenvalues pairings are unique to each matrix, and the Eigenvectors of a matrix are the Eigenvectors of the square of the matrix
+            w, lambda_w_sqr, res_decomp, res_evals = ff.custom_eigendecomposition(p @ q)
+            lambda_w_sqr = [lambda_w_sqr[itr, itr] for itr in range(lambda_w_sqr.shape[0])]
             print(f'Lambda after:\n{lambda_w_sqr}')
             lambda_w = np.sqrt(lambda_w_sqr)
             # lambda_w = lambda_w[reorder]
